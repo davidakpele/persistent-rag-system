@@ -1,0 +1,25 @@
+streamlit==1.39.0
+pandas==2.2.3
+sqlalchemy==2.0.35
+chromadb==0.4.24
+numpy<2.0
+
+# LlamaIndex ecosystem - use consistent versions
+llama-index==0.10.44
+llama-index-core==0.10.44
+llama-index-llms-ollama==0.1.4
+llama-index-embeddings-ollama==0.1.2
+llama-index-vector-stores-chroma==0.1.4
+
+# LangChain
+langchain==0.1.17
+langchain-core
+langchain-community
+
+# Utilities
+nltk==3.9.1
+tqdm==4.66.5
+PyPDF2
+pdfplumber
+python-docx
+pytesseract

@@ -27,7 +27,7 @@ UPLOAD_DIR = BASE_DIR / "uploaded_docs"
 UPLOAD_DIR.mkdir(exist_ok=True)
 HISTORY_FILE = BASE_DIR / "chat_history.json"
 
-# Maximum context size (in words) to avoid overloading the model
+# Maximum context size
 MAX_CONTEXT_WORDS = 6000
 
 # --- Persistent Storage Functions ---
@@ -130,9 +130,9 @@ def get_gpu_memory_info():
             gpu = gpus[0]
             return {
                 "name": gpu.name,
-                "total_memory": gpu.memoryTotal,  # Keep as float
-                "free_memory": gpu.memoryFree,    # Keep as float
-                "used_memory": gpu.memoryUsed,    # Keep as float
+                "total_memory": gpu.memoryTotal,  
+                "free_memory": gpu.memoryFree, 
+                "used_memory": gpu.memoryUsed,   
                 "utilization": f"{gpu.load * 100:.1f}%"
             }
         return None
@@ -145,21 +145,20 @@ def setup_ollama_for_gpu():
     
     # Determine optimal GPU layers based on available VRAM
     if gpu_info:
-        total_vram = gpu_info['total_memory']  # Already a float
-        if total_vram >= 24000:  # 24GB+ VRAM (RTX 3090/4090)
+        total_vram = gpu_info['total_memory']  
+        if total_vram >= 24000: 
             num_gpu_layers = 50
             low_vram = False
-        elif total_vram >= 12000:  # 12GB VRAM (RTX 3060-3080)
+        elif total_vram >= 12000:  
             num_gpu_layers = 35
             low_vram = False
-        elif total_vram >= 8000:   # 8GB VRAM (RTX 4060-4070)
+        elif total_vram >= 8000:  
             num_gpu_layers = 25
             low_vram = True
-        else:  # Less than 8GB VRAM
+        else:
             num_gpu_layers = 15
             low_vram = True
     else:
-        # Default fallback
         num_gpu_layers = 25
         low_vram = True
     
@@ -193,7 +192,7 @@ def start_ollama():
         # Start Ollama with GPU environment
         env = os.environ.copy()
         subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-        time.sleep(5)  # Wait for Ollama to start
+        time.sleep(5) 
         return check_ollama_running()
     except:
         return False
@@ -235,10 +234,7 @@ def extract_text_from_pdf_enhanced(file_path) -> Tuple[str, Dict]:
         with pdfplumber.open(file_path) as pdf:
             metadata["total_pages"] = len(pdf.pages)
             for i, page in enumerate(pdf.pages):
-                # Extract text
                 page_text = page.extract_text() or ""
-                
-                # Extract tables if any
                 tables = page.extract_tables()
                 table_text = ""
                 if tables:
@@ -247,8 +243,6 @@ def extract_text_from_pdf_enhanced(file_path) -> Tuple[str, Dict]:
                         for row in table:
                             table_text += " | ".join([str(cell) if cell else "" for cell in row]) + "\n"
                         table_text += "\n"
-                
-                # Combine text and tables
                 if page_text or table_text:
                     text += f"--- Page {i+1} ---\n{page_text}\n"
                     if table_text:
@@ -257,12 +251,10 @@ def extract_text_from_pdf_enhanced(file_path) -> Tuple[str, Dict]:
             
             metadata["extraction_method"] = "pdfplumber"
             if text.strip():
-                metadata["quality_score"] = min(100, len(text.strip().split()) // 10)  # Rough quality estimate
+                metadata["quality_score"] = min(100, len(text.strip().split()) // 10)
                 return text.strip(), metadata
     except Exception as e:
         st.warning(f"pdfplumber failed for {file_path.name}: {str(e)}")
-    
-    # Method 2: PyPDF2 fallback
     try:
         text = ""
         with open(file_path, 'rb') as file:
@@ -299,7 +291,6 @@ def extract_text_from_csv(file_path) -> str:
     """Extract structured data from CSV files"""
     try:
         df = pd.read_csv(file_path)
-        # Convert to readable text format
         text = f"CSV Data from {file_path.name}:\n"
         text += f"Shape: {df.shape[0]} rows x {df.shape[1]} columns\n\n"
         text += "First 10 rows:\n"
@@ -323,15 +314,10 @@ def clean_extracted_text(text: str) -> str:
     """Clean and normalize extracted text"""
     if not text:
         return ""
-    
-    # Remove excessive whitespace
     text = re.sub(r'\n\s*\n', '\n\n', text)
     text = re.sub(r' +', ' ', text)
-    
-    # Fix common OCR/PDF issues
-    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)  # Fix hyphenated words
-    text = re.sub(r'\uf0b7', '•', text)  # Fix bullet points
-    
+    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text) 
+    text = re.sub(r'\uf0b7', '•', text) 
     return text.strip()
 
 def smart_text_truncation(text: str, max_words: int = MAX_CONTEXT_WORDS) -> str:
@@ -342,8 +328,6 @@ def smart_text_truncation(text: str, max_words: int = MAX_CONTEXT_WORDS) -> str:
     words = text.split()
     if len(words) <= max_words:
         return text
-    
-    # Keep beginning and end, remove middle
     keep_each_side = max_words // 2
     truncated = words[:keep_each_side] + ["\n\n...[Content truncated for length...]\n\n"] + words[-keep_each_side:]
     return " ".join(truncated)
@@ -368,15 +352,14 @@ def process_single_file(file_path):
         elif file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
             extracted_text = extract_text_from_image(file_path)
             metadata = {"extraction_method": "OCR", "quality_score": 70}
-        else:  # Text files
+        else:
             with open(file_path, 'r', encoding='utf-8') as f:
                 extracted_text = f.read()
             metadata = {"extraction_method": "direct", "quality_score": 100}
         
-        # Clean and validate extracted text
         if extracted_text:
             extracted_text = clean_extracted_text(extracted_text)
-            if len(extracted_text.strip()) > 10:  # Minimum viable text
+            if len(extracted_text.strip()) > 10: 
                 return {
                     "name": file_path.name,
                     "path": file_path,
@@ -395,23 +378,22 @@ def process_existing_files():
     current_files = list(UPLOAD_DIR.glob("*"))
     if not current_files:
         return
-    
-    # Check if we need to process any files
+
     unprocessed_files = [f for f in current_files if f.name not in st.session_state.processed_files]
     if not unprocessed_files:
         return
     
     with st.sidebar:
-        with st.status("🔄 Processing existing documents...", expanded=True) as status:
+        with st.status("Processing existing documents...", expanded=True) as status:
             for i, file_path in enumerate(unprocessed_files):
                 status.write(f"Processing {file_path.name}...")
                 result = process_single_file(file_path)
                 if result:
                     st.session_state.processed_files[result['name']] = result
                     st.session_state.file_metadata.append(result['metadata'])
-                time.sleep(0.5)  # Small delay to show progress
+                time.sleep(0.5)  
             
-            status.update(label="✅ All documents processed!", state="complete", expanded=False)
+            status.update(label="All documents processed!", state="complete", expanded=False)
 
 def process_uploaded_files(uploaded_files) -> Dict:
     """Process multiple files with progress tracking and quality assessment"""
@@ -464,16 +446,11 @@ def read_all_documents() -> Tuple[str, List[Dict]]:
         })
     
     combined_text = "\n\n".join(text_content)
-    # Apply smart truncation if needed
     combined_text = smart_text_truncation(combined_text)
     
     return combined_text, file_metadata
-
-# --- Enhanced RAG with Ollama ---
 def query_ollama(prompt: str, context: str = "", document_metadata: List[Dict] = None) -> str:
     """GPU-optimized RAG query with better prompting"""
-    
-    # Build document info string
     doc_info = ""
     if document_metadata:
         doc_info = "Documents analyzed:\n" + "\n".join([
@@ -495,12 +472,8 @@ Please:
 4. Be thorough but concise
 
 ANSWER:"""
-    
-    # Use GPU-optimized payload
     payload, num_gpu_layers, low_vram = setup_ollama_for_gpu()
     payload["prompt"] = full_prompt
-    
-    # Store GPU settings in session for display
     st.session_state.gpu_settings = {
         'num_gpu_layers': num_gpu_layers,
         'low_vram': low_vram
@@ -515,8 +488,6 @@ ANSWER:"""
             return f"Error: {response.status_code} - {response.text}"
     except Exception as e:
         return f"Error connecting to Ollama: {e}"
-
-# --- File Management ---
 def save_uploaded_file(uploaded_file):
     """Save uploaded file with unique naming"""
     file_path = UPLOAD_DIR / uploaded_file.name
@@ -545,91 +516,69 @@ def get_file_stats():
 
 # --- Streamlit App ---
 def main():
-    st.set_page_config(page_title="🎯 GPU-Optimized Document Q&A", layout="wide")
-    st.title("🎯 GPU-Optimized Multi-Document Q&A")
-    
-    # Initialize session state with persistent chat history
+    st.set_page_config(page_title="GPU-Optimized Document Q&A", layout="wide")
+    st.title("GPU-Optimized Multi-Document Q&A")
     if 'chat_sessions' not in st.session_state:
         history_data = load_chat_history()
         st.session_state.chat_sessions = history_data.get("sessions", [])
         st.session_state.current_session_id = history_data.get("current_session_id")
-    
-    # Initialize other session state variables
     if 'processed_files' not in st.session_state:
         st.session_state.processed_files = {}
     if 'file_metadata' not in st.session_state:
         st.session_state.file_metadata = []
     if 'gpu_settings' not in st.session_state:
         st.session_state.gpu_settings = {}
-    
-    # Create initial session if none exists
     if not st.session_state.chat_sessions:
         create_new_session()
-    
-    # Process existing files on app start
     process_existing_files()
     
     # === SIDEBAR CONTENT ===
-    
-    # GPU Status Check
-    st.sidebar.header("🎯 GPU Status")
+    st.sidebar.header("GPU Status")
     gpu_available = check_gpu_availability()
     gpu_info = get_gpu_memory_info()
     
     if gpu_info:
-        with st.sidebar.expander("📊 GPU Details", expanded=True):
+        with st.sidebar.expander("GPU Details", expanded=True):
             st.write(f"**Name:** {gpu_info['name']}")
             st.write(f"**Total VRAM:** {gpu_info['total_memory']:.0f}MB")
             st.write(f"**Free VRAM:** {gpu_info['free_memory']:.0f}MB")
             st.write(f"**Utilization:** {gpu_info['utilization']}")
-            
-            # Show current GPU settings
             if st.session_state.gpu_settings:
                 st.write(f"**GPU Layers:** {st.session_state.gpu_settings.get('num_gpu_layers', 'N/A')}")
                 st.write(f"**Low VRAM Mode:** {st.session_state.gpu_settings.get('low_vram', 'N/A')}")
-    
-    # Ollama status check
-    st.sidebar.header("🔧 Ollama Status")
-    
+    st.sidebar.header(" Ollama Status")
     if not check_ollama_running():
-        st.sidebar.error("❌ Ollama not running")
+        st.sidebar.error("Ollama not running")
         if st.sidebar.button("Try to Start Ollama Automatically"):
             if start_ollama():
-                st.sidebar.success("✅ Ollama started!")
+                st.sidebar.success("Ollama started!")
                 st.rerun()
             else:
                 st.sidebar.error("Failed to start Ollama automatically")
         return
     
-    st.sidebar.success("✅ Ollama is running!")
-    
-    # Model check
+    st.sidebar.success("Ollama is running!")
+
     available_models = check_models()
     required_model = "codellama:7b-instruct-q4_K_M"
-    
     if required_model not in available_models:
-        st.sidebar.warning(f"❌ Model '{required_model}' not found")
+        st.sidebar.warning(f"Model '{required_model}' not found")
         if st.sidebar.button(f"Download {required_model}"):
             with st.sidebar.status("Downloading model...", expanded=True) as status:
-                st.write("🔄 Downloading model with GPU support...")
+                st.write("Downloading model with GPU support...")
                 if pull_model(required_model):
                     status.update(label="Download complete!", state="complete")
                     st.rerun()
                 else:
                     status.update(label="Download failed", state="error")
     else:
-        st.sidebar.success(f"✅ Model '{required_model}' available")
-    
-    # Chat Sessions Management
+        st.sidebar.success(f"Model '{required_model}' available")
     st.sidebar.header("💬 Chat Sessions")
     
     with st.sidebar.expander("Session Management", expanded=True):
-        # Create new session button
         if st.button("➕ New Chat", use_container_width=True):
             create_new_session()
             st.rerun()
-        
-        # Session list
         current_session = get_current_session()
         for session in st.session_state.chat_sessions:
             col1, col2, col3 = st.columns([3, 1, 1])
@@ -649,8 +598,7 @@ def main():
                     if st.button("🗑️", key=f"delete_{session['id']}", help="Delete session"):
                         delete_session(session["id"])
                         st.rerun()
-    
-    # Document Library in Sidebar
+
     current_files = list(UPLOAD_DIR.glob("*"))
     if current_files:
         st.sidebar.header("📋 Document Library")
@@ -667,12 +615,11 @@ def main():
                     else:
                         st.warning("⏳")
     
-    # Document statistics
     if current_files:
         stats = get_file_stats()
         total_words = sum(item['word_count'] for item in st.session_state.processed_files.values())
         
-        st.sidebar.header("📊 Document Stats")
+        st.sidebar.header("Document Stats")
         st.sidebar.metric("Total Files", stats['total'])
         st.sidebar.metric("Total Words", f"{total_words:,}")
         st.sidebar.metric("PDFs", stats['pdfs'])
@@ -684,8 +631,7 @@ def main():
             st.sidebar.metric("Images", stats['images'])
         if stats['csv'] > 0:
             st.sidebar.metric("CSV Files", stats['csv'])
-    
-    # Management section in Sidebar
+
     st.sidebar.header("🛠️ Management")
     with st.sidebar.expander("Document Controls", expanded=True):
         col1, col2 = st.columns(2)
@@ -744,12 +690,8 @@ def main():
         """)
     
     # === MAIN CONTENT ===
-    
-    # Current session info
     current_session = get_current_session()
     st.header(f"💬 {current_session['name']}")
-    
-    # Rename session
     with st.expander("✏️ Rename Session"):
         new_name = st.text_input("Session name:", value=current_session['name'])
         if st.button("Update Name") and new_name != current_session['name']:
@@ -771,31 +713,22 @@ def main():
         if st.button("🚀 Process All Files", type="primary"):
             with st.spinner("Processing files with enhanced extraction..."):
                 results = process_uploaded_files(uploaded_files)
-                
-                # Display results
-                st.success(f"✅ Successfully processed {len(results['successful'])}/{len(uploaded_files)} files")
-                
+                st.success(f"Successfully processed {len(results['successful'])}/{len(uploaded_files)} files")
                 if results['failed']:
-                    with st.expander("❌ Failed Files", expanded=False):
+                    with st.expander("Failed Files", expanded=False):
                         for failed in results['failed']:
                             st.error(f"{failed['name']}: {failed['reason']}")
-                
-                # Store processed files
                 for item in results["successful"]:
                     st.session_state.processed_files[item['name']] = item
                     st.session_state.file_metadata.append(item['metadata'])
-    
-    # Display chat history for current session
     st.header("📝 Conversation")
-    
-    # Display messages from current session
     for message in current_session["messages"]:
         if message["role"] == "user":
             with st.chat_message("user"):
                 st.write(message["content"])
                 if message["metadata"].get("documents_used"):
                     st.caption(f"📚 Used {message['metadata']['documents_used']} documents")
-        else:  # assistant
+        else: 
             with st.chat_message("assistant"):
                 st.write(message["content"])
                 if message["metadata"]:
@@ -806,8 +739,6 @@ def main():
     
     # Query section
     st.header("❓ Ask a Question")
-    
-    # Enhanced quick action buttons (only show if documents are loaded)
     if current_files:
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -819,41 +750,28 @@ def main():
         with col3:
             if st.button("📊 Extract Key Insights", help="Extract most important insights", use_container_width=True):
                 st.session_state.auto_query = "What are the most important insights, findings, and recommendations across all documents?"
-    
-    # Chat input
     query = st.chat_input("Ask a question about your documents...", key="chat_input")
-    
-    # Use auto-query if set
     if hasattr(st.session_state, 'auto_query'):
         query = st.session_state.auto_query
         del st.session_state.auto_query
-    
     if query:
-        # Add user message to chat
         with st.chat_message("user"):
             st.write(query)
         
         if not current_files:
             with st.chat_message("assistant"):
-                st.error("❌ Please upload and process some documents first")
+                st.error("Please upload and process some documents first")
         else:
-            with st.spinner("🔍 Analyzing documents with GPU-accelerated RAG..."):
-                # Read all documents with enhanced processing
+            with st.spinner("Analyzing documents with GPU-accelerated RAG..."):
                 context, doc_metadata = read_all_documents()
-                
                 if not context.strip():
                     with st.chat_message("assistant"):
-                        st.error("❌ No readable text found in uploaded documents")
+                        st.error("No readable text found in uploaded documents")
                 else:
-                    # Show enhanced context stats
                     word_count = len(context.split())
                     char_count = len(context)
                     doc_count = len(doc_metadata)
-                    
-                    # Get analysis from Ollama
                     answer = query_ollama(query, context, doc_metadata)
-                    
-                    # Add messages to persistent storage
                     add_message_to_session("user", query, {
                         "documents_used": doc_count,
                         "context_size": word_count
@@ -864,16 +782,13 @@ def main():
                         "context_size": word_count,
                         "gpu_layers": st.session_state.gpu_settings.get('num_gpu_layers', 'N/A')
                     })
-                    
-                    # Display assistant response
+            
                     with st.chat_message("assistant"):
                         st.write(answer)
                         with st.expander("🔍 Response Details"):
                             st.write(f"**Documents Analyzed:** {doc_count}")
                             st.write(f"**Context Size:** {word_count} words")
                             st.write(f"**GPU Layers:** {st.session_state.gpu_settings.get('num_gpu_layers', 'N/A')}")
-            
-            # Rerun to update the display
             st.rerun()
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
+# Core dependencies
 streamlit==1.39.0
 pandas==2.2.3
 sqlalchemy==2.0.35
 chromadb==0.4.24
 numpy<2.0
 
-# LlamaIndex ecosystem - use consistent versions
+# LlamaIndex ecosystem
 llama-index==0.10.44
 llama-index-core==0.10.44
 llama-index-llms-ollama==0.1.4
@@ -23,3 +24,10 @@ PyPDF2
 pdfplumber
 python-docx
 pytesseract
+GPUtil
+
+# PyTorch (CUDA 12.1)
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+torchaudio

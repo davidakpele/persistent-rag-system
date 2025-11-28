@@ -166,32 +166,29 @@ def get_gpu_memory_info():
         return None
 
 def setup_ollama_for_gpu():
-    """Configure Ollama to use GPU with optimal settings based on available VRAM"""
     gpu_info = get_gpu_memory_info()
     
-    # Determine optimal GPU layers based on available VRAM
     if gpu_info:
-        total_vram = gpu_info['total_memory']  # Already a float
-        if total_vram >= 24000:  # 24GB+ VRAM (RTX 3090/4090)
+        total_vram = gpu_info['total_memory']
+        if total_vram >= 24000:
             num_gpu_layers = 50
             low_vram = False
-        elif total_vram >= 12000:  # 12GB VRAM (RTX 3060-3080)
+        elif total_vram >= 12000:
             num_gpu_layers = 35
             low_vram = False
-        elif total_vram >= 8000:   # 8GB VRAM (RTX 4060-4070)
+        elif total_vram >= 8000:
             num_gpu_layers = 25
             low_vram = True
-        else:  # Less than 8GB VRAM
+        else:
             num_gpu_layers = 15
             low_vram = True
     else:
-        # Default fallback
         num_gpu_layers = 25
         low_vram = True
     
     gpu_payload = {
         "model": "codellama:7b-instruct-q4_K_M",
-        "stream": False,
+        "stream": True,
         "options": {
             "temperature": 0.1,
             "top_p": 0.9,
@@ -200,6 +197,7 @@ def setup_ollama_for_gpu():
             "num_gpu": num_gpu_layers,
             "main_gpu": 0,
             "low_vram": low_vram,
+            "timeout": 3600000,
         }
     }
     return gpu_payload, num_gpu_layers, low_vram
@@ -497,9 +495,6 @@ def read_all_documents() -> Tuple[str, List[Dict]]:
 
 # --- Enhanced RAG with Ollama ---
 def query_ollama(prompt: str, context: str = "", document_metadata: List[Dict] = None) -> str:
-    """GPU-optimized RAG query with better prompting"""
-    
-    # Build document info string
     doc_info = ""
     if document_metadata:
         doc_info = "Documents analyzed:\n" + "\n".join([
@@ -522,25 +517,54 @@ Please:
 
 ANSWER:"""
     
-    # Use GPU-optimized payload
     payload, num_gpu_layers, low_vram = setup_ollama_for_gpu()
     payload["prompt"] = full_prompt
+    payload["stream"] = True
     
-    # Store GPU settings in session for display
     st.session_state.gpu_settings = {
         'num_gpu_layers': num_gpu_layers,
         'low_vram': low_vram
     }
     
     try:
-        with st.spinner(f"🔄 Generating answer using GPU ({num_gpu_layers} layers)..."):
-            response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, timeout=1200)
-        if response.status_code == 200:
-            return response.json().get('response', 'No response received')
-        else:
-            return f"Error: {response.status_code} - {response.text}"
+        response_placeholder = st.empty()
+        full_response = ""
+        
+        with st.spinner(f"Generating answer using GPU ({num_gpu_layers} layers)..."):
+            response = requests.post(
+                f"{OLLAMA_HOST}/api/generate", 
+                json=payload, 
+                timeout=3600,
+                stream=True
+            )
+            
+            if response.status_code == 200:
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            json_response = json.loads(line)
+                            if 'response' in json_response:
+                                chunk = json_response['response']
+                                full_response += chunk
+                                response_placeholder.markdown(full_response + "▌")
+                            
+                            if json_response.get('done', False):
+                                break
+                                
+                        except json.JSONDecodeError:
+                            continue
+                
+                response_placeholder.markdown(full_response)
+                return full_response
+            else:
+                return f"Error: {response.status_code} - {response.text}"
+                
+    except requests.exceptions.Timeout:
+        return "Request timed out. The model is taking too long to respond. Try simplifying your question or reducing document size."
+    except requests.exceptions.ConnectionError:
+        return "Connection error. Please check if Ollama is running."
     except Exception as e:
-        return f"Error connecting to Ollama: {e}"
+        return f"Error connecting to Ollama: {str(e)}"
 
 # --- File Management ---
 def save_uploaded_file(uploaded_file):
